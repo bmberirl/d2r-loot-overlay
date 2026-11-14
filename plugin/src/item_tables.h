@@ -34,6 +34,8 @@ public:
 	auto CalibrationSummary() const -> std::string;
 
 	auto UniqueName(uint32_t recordId) const -> std::string;
+	// (UniqueItems *ID, display name) for every unique charm in the mod.
+	auto UniqueCharms() const -> const std::vector<std::pair<uint32_t, std::string>>& { return uniqueCharms_; }
 	auto SetName(uint32_t recordId) const -> std::string;
 	auto Loaded() const -> bool { return !withSeparators_.empty(); }
 
@@ -49,6 +51,7 @@ private:
 	std::unordered_map<uint32_t, std::string>    uniques_;  // *ID -> index key
 	std::unordered_map<uint32_t, std::string>    sets_;
 	std::unordered_map<std::string, std::string> strings_;  // Key -> enUS
+	std::vector<std::pair<uint32_t, std::string>> uniqueCharms_;
 };
 
 auto TrimCode(const std::string& code) -> std::string;

@@ -90,7 +90,7 @@ constexpr uint32_t FlagSocketed   = 0x00000800;
 constexpr uint32_t FlagEthereal   = 0x00400000;
 constexpr uint32_t FlagRuneword   = 0x04000000;
 
-// Publishes a drop and, for orbs, runes and gems, adds it to the stream tally.
+// Publishes a drop and, for orbs, runes, gems and unique charms, adds it to the stream tally.
 void Record(const DropEvent& e) {
 	g->feed.Publish(e);
 	std::string type, type2;
@@ -98,15 +98,27 @@ void Record(const DropEvent& e) {
 		type  = base->type;
 		type2 = base->type2;
 	}
-	const std::string kind = TallyKind(e.code, type, e.runeNumber);
+	const std::string kind = TallyKind(e.code, type, e.runeNumber, e.quality);
 	if (kind.empty()) return;
 	TallyEntry meta;
-	meta.kind  = kind;
-	meta.name  = e.name;
-	meta.type  = type;
-	meta.type2 = type2;
-	meta.rune  = e.runeNumber;
-	g->tally.Add(e.code, meta);
+	meta.kind   = kind;
+	meta.name   = e.name;
+	meta.type   = type;
+	meta.type2  = type2;
+	meta.rune   = e.runeNumber;
+	meta.record = e.recordId;
+	g->tally.Add(TallyKey(kind, e.code, e.recordId), meta);
+}
+
+auto CharmCatalogJson() -> std::string {
+	std::string json = "[";
+	bool first = true;
+	for (const auto& [id, name] : g->tables.UniqueCharms()) {
+		json += first ? "" : ",";
+		json += "{\"id\":" + std::to_string(id) + ",\"name\":\"" + JsonEscape(name) + "\"}";
+		first = false;
+	}
+	return json + "]";
 }
 
 auto MakeEvent(const GroundItem& item) -> DropEvent {
@@ -133,6 +145,7 @@ auto MakeEvent(const GroundItem& item) -> DropEvent {
 	e.runeNumber = RuneNumber(e.code);
 	if (item.quality == 7) e.name = g->tables.UniqueName(item.fileIndex);
 	if (item.quality == 5) e.name = g->tables.SetName(item.fileIndex);
+	if (item.quality == 5 || item.quality == 7) e.recordId = static_cast<int32_t>(item.fileIndex);
 	if (e.name.empty()) e.name = e.baseName;
 	return e;
 }
@@ -308,6 +321,8 @@ auto __cdecl CmdTest(D2R::Game::Client*, const D2RL::ConsoleCommandContext* cmd,
 		e.quality = "normal"; e.name = "Ber Rune"; e.baseName = "Ber Rune"; e.code = "r30"; e.runeNumber = 30;
 	} else if (arg.find("orb") != std::string::npos) {
 		e.quality = "normal"; e.name = "Orb of Corruption"; e.baseName = "Orb of Corruption"; e.code = "ka3";
+	} else if (arg.find("charm") != std::string::npos) {
+		e.quality = "unique"; e.name = "Annihilus"; e.baseName = "Small Charm"; e.code = "cm1"; e.recordId = 381;
 	} else if (arg.find("gem") != std::string::npos) {
 		e.quality = "normal"; e.name = "Perfect Ruby"; e.baseName = "Perfect Ruby"; e.code = "gpr";
 	} else if (arg.find("rare") != std::string::npos) {
@@ -414,6 +429,8 @@ D2RL_PLUGIN_EXPORT auto D2RLoaderLoadPlugin(const D2RL::PluginContext* context) 
 		if (!why.empty()) Log(why);
 
 		g->tally.Load(g->dataDir / L"tally.json");
+		g->tally.SetCharmCatalog(CharmCatalogJson());
+		Log("unique charms known: " + std::to_string(g->tables.UniqueCharms().size()));
 		Log("tally loaded: " + std::to_string(g->tally.Total()) + " orbs/runes/gems so far");
 		g->server = std::make_unique<HttpServer>(g->feed, g->tally, HttpServer::Pages { OverlayHtml, TallyHtml, ControlHtml }, [] {
 			if (g) {
@@ -438,7 +455,7 @@ D2RL_PLUGIN_EXPORT auto D2RLoaderLoadPlugin(const D2RL::PluginContext* context) 
 		}
 
 		bool commands = context->RegisterConsoleCommand("lootdrop-status", CmdStatus, "Loot Drop Overlay: show overlay URL and scanner state.");
-		commands &= context->RegisterConsoleCommand("lootdrop-test", CmdTest, "Loot Drop Overlay: send a test drop (unique|set|rune|orb|rare, add eth).");
+		commands &= context->RegisterConsoleCommand("lootdrop-test", CmdTest, "Loot Drop Overlay: send a test drop (unique|set|rune|orb|gem|charm|rare, add eth, add tally to count it).");
 		commands &= context->RegisterConsoleCommand("lootdrop-probe", CmdProbe, "Loot Drop Overlay: list item units the scanner sees.");
 		commands &= context->RegisterConsoleCommand("lootdrop-rescan", CmdRescan, "Loot Drop Overlay: locate and verify the unit table again.");
 		commands &= context->RegisterConsoleCommand("lootdrop-reset", CmdReset, "Loot Drop Overlay: clear the stream tally (orbs, runes, gems).");

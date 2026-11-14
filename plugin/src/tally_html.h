@@ -1,7 +1,9 @@
 #pragma once
 // GET /tally   - persistent stream tally (OBS browser source)
-//   sections=rune,orb,gem  which blocks to show, in that order (default rune,orb,gem;
-//                          runes are listed highest to lowest)
+//   sections=rune,orb,charm,gem  which blocks to show, in that order (default
+//                          rune,orb,charm,gem; runes are listed highest to lowest)
+//   charms=found|all       unique charms: only those found (default), or every
+//                          unique charm in the mod with zeros
 //   minrune=21             lowest rune shown (default 21 = Pul and up; 1 = all)
 //   gems=found|all|perfect found: only gem types seen (default); all: every type;
 //                          perfect: only the Perfect column
@@ -24,7 +26,7 @@ h2:first-child{margin-top:0}
 h2{margin:.55em 0 .25em;font-size:.62em;letter-spacing:.16em;text-transform:uppercase;color:#a99f86;font-weight:normal;border-bottom:1px solid rgba(199,179,119,.18);padding-bottom:.15em}
 .row{display:flex;justify-content:space-between;gap:1.2em;line-height:1.3}
 .row .n{font-variant-numeric:tabular-nums;font-weight:bold}
-.orb{color:var(--orb)} .rune{color:var(--rune)}
+.orb{color:var(--orb)} .rune{color:var(--rune)} .charm{color:var(--gold)}
 .row.zero{color:var(--dim)} .zero .n{font-weight:normal}
 .chips{display:flex;flex-wrap:wrap;gap:.25em .7em;color:var(--rune)}
 .chips .n{font-weight:bold;margin-left:.25em}
@@ -42,7 +44,8 @@ td.z{color:var(--dim)}
 <script>
 (function(){
 const q=new URLSearchParams(location.search);
-const sections=(q.get('sections')||'rune,orb,gem').toLowerCase().split(',').map(s=>s.trim()).filter(Boolean);
+const charmMode=(q.get('charms')||'found').toLowerCase();
+const sections=(q.get('sections')||'rune,orb,charm,gem').toLowerCase().split(',').map(s=>s.trim()).filter(Boolean);
 const minRune=Math.max(1,Math.min(33,parseInt(q.get('minrune')||'21',10)||21));
 const gemMode=(q.get('gems')||'found').toLowerCase();
 const scale=Math.max(.4,Math.min(4,parseFloat(q.get('scale')||'1')||1));
@@ -74,6 +77,14 @@ function render(t){
    const found=t.items.filter(i=>i.kind==='rune'&&i.rune>=minRune).sort((a,b)=>b.rune-a.rune);
    if(!found.length){panel.appendChild(el('div','empty','none yet'));}
    else{for(const r of found){const row=el('div','row rune');row.appendChild(el('span','',(RUNES[r.rune-1]||r.name)+' #'+r.rune));row.appendChild(num('rune:'+r.rune,r.count));counts['rune:'+r.rune]=r.count;panel.appendChild(row);}}
+  }else if(sec==='charm'){
+   panel.appendChild(el('h2','','Unique Charms'));
+   const byRec={};for(const i of t.items)if(i.kind==='charm')byRec[i.record]=(byRec[i.record]||0)+i.count;
+   let list;
+   if(charmMode==='all'){list=(t.charmCatalog||[]).map(c=>({name:c.name,record:c.id,count:byRec[c.id]||0}));}
+   else{list=t.items.filter(i=>i.kind==='charm').map(i=>({name:i.name,record:i.record,count:i.count})).sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));}
+   if(!list.length){panel.appendChild(el('div','empty','none yet'));continue;}
+   for(const c of list){const r=el('div','row charm'+(c.count?'':' zero'));r.appendChild(el('span','',c.name));r.appendChild(num('charm:'+c.record,c.count));counts['charm:'+c.record]=c.count;panel.appendChild(r);}
   }else if(sec==='gem'){
    panel.appendChild(el('h2','','Gems'));
    const grid={};let any=false;

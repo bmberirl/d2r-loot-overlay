@@ -37,7 +37,7 @@ auto Field(const std::string& line, const char* key) -> std::string {
 
 auto EntryJson(const std::string& code, const TallyEntry& e) -> std::string {
 	char nums[96];
-	std::snprintf(nums, sizeof(nums), "\"rune\":%d,\"count\":%u}", e.rune, e.count);
+	std::snprintf(nums, sizeof(nums), "\"rune\":%d,\"record\":%d,\"count\":%u}", e.rune, e.record, e.count);
 	return "{\"code\":\"" + JsonEscape(code) + "\",\"kind\":\"" + JsonEscape(e.kind) + "\",\"name\":\"" + JsonEscape(e.name) + "\",\"type\":\"" + JsonEscape(e.type) + "\",\"type2\":\""
 	     + JsonEscape(e.type2) + "\"," + nums;
 }
@@ -51,7 +51,16 @@ auto NowEpochMs() -> int64_t {
 	return static_cast<int64_t>((t - 116444736000000000ULL) / 10000ULL);
 }
 
-auto TallyKind(const std::string& code, const std::string& type, int32_t runeNumber) -> std::string {
+auto IsCharmType(const std::string& type) -> bool {
+	return type == "scha" || type == "mcha" || type == "lcha" || type == "csch";
+}
+
+auto TallyKey(const std::string& kind, const std::string& code, int32_t recordId) -> std::string {
+	return kind == "charm" ? "u" + std::to_string(recordId) : code;
+}
+
+auto TallyKind(const std::string& code, const std::string& type, int32_t runeNumber, const std::string& quality) -> std::string {
+	if (quality == "unique" && IsCharmType(type)) return "charm";
 	if (runeNumber > 0) return "rune";
 	if (OrbCodes.count(code) != 0) return "orb";
 	// gema gemd geme gemr gems gemt gemz gemo, and gem stacks (gemx).
@@ -76,6 +85,8 @@ void Tally::Load(const std::filesystem::path& file) {
 			e.type  = Field(line, "type");
 			e.type2 = Field(line, "type2");
 			e.rune  = static_cast<int32_t>(std::strtol(Field(line, "rune").c_str(), nullptr, 10));
+			const std::string record = Field(line, "record");
+			e.record = record.empty() ? -1 : static_cast<int32_t>(std::strtol(record.c_str(), nullptr, 10));
 			e.count = static_cast<uint32_t>(std::strtoul(Field(line, "count").c_str(), nullptr, 10));
 			const std::string code = Field(line, "code");
 			if (!code.empty() && e.count > 0) entries_[code] = e;
@@ -102,9 +113,15 @@ void Tally::Reset() {
 	SaveLocked();
 }
 
+void Tally::SetCharmCatalog(std::string json) {
+	std::lock_guard lock(mutex_);
+	charmCatalog_ = json.empty() ? "[]" : std::move(json);
+	++version_;
+}
+
 auto Tally::Json() const -> std::string {
 	std::lock_guard lock(mutex_);
-	std::string json = "{\"started\":" + std::to_string(startedMs_) + ",\"version\":" + std::to_string(version_) + ",\"items\":[";
+	std::string json = "{\"started\":" + std::to_string(startedMs_) + ",\"version\":" + std::to_string(version_) + ",\"charmCatalog\":" + charmCatalog_ + ",\"items\":[";
 	bool first = true;
 	for (const auto& [code, e] : entries_) {
 		json += first ? "" : ",";

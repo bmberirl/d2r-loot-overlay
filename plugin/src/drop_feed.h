@@ -25,6 +25,7 @@ struct DropEvent {
 	bool        socketed   = false;
 	bool        runeword   = false;
 	int32_t     runeNumber = 0;  // 1..33 for El..Zod, else 0
+	int32_t     recordId   = -1; // UniqueItems / SetItems *ID for unique and set items
 	int32_t     levelId    = -1;
 	int32_t     x          = 0;
 	int32_t     y          = 0;

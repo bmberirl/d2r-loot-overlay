@@ -7,7 +7,7 @@ items as they drop on the ground and serves OBS browser-source overlays on
 - `http://127.0.0.1:8766/`: a pop-up card for each drop. Defaults to uniques,
   sets, the seven Reimagined orbs, and runes above #20.
 - `http://127.0.0.1:8766/tally`: a persistent stream tally of runes (highest
-  first), orbs and gems. It survives game restarts until reset.
+  first), orbs, unique charms and gems. It survives game restarts until reset.
 - `http://127.0.0.1:8766/control`: a reset dock (OBS Docks > Custom Browser Docks).
 
 URL options are documented at the top of `plugin/src/overlay_html.h` and
@@ -38,7 +38,7 @@ Plugin log: `<game>\mods\Reimagined\d2rloader\logs\loot-drop-overlay.log`
 
 ## Console commands
 
-`lootdrop-status`, `lootdrop-test [unique|set|rune|orb|gem|rare] [eth] [tally]`,
+`lootdrop-status`, `lootdrop-test [unique|set|rune|orb|gem|charm|rare] [eth] [tally]`,
 `lootdrop-probe`, `lootdrop-rescan`, `lootdrop-reset`
 
 ## Build and install

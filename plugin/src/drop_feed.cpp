@@ -36,9 +36,9 @@ auto ToJson(const DropEvent& e) -> std::string {
 	json += "\"name\":\"" + JsonEscape(e.name) + "\",";
 	json += "\"base\":\"" + JsonEscape(e.baseName) + "\",";
 	char tail[256];
-	std::snprintf(tail, sizeof(tail), "\"flags\":%u,\"ethereal\":%s,\"identified\":%s,\"socketed\":%s,\"runeword\":%s,\"rune\":%d,\"level\":%d,\"x\":%d,\"y\":%d,\"test\":%s}", e.flags,
-	              e.ethereal ? "true" : "false", e.identified ? "true" : "false", e.socketed ? "true" : "false", e.runeword ? "true" : "false", e.runeNumber, e.levelId, e.x, e.y,
-	              e.test ? "true" : "false");
+	std::snprintf(tail, sizeof(tail), "\"flags\":%u,\"ethereal\":%s,\"identified\":%s,\"socketed\":%s,\"runeword\":%s,\"rune\":%d,\"record\":%d,\"level\":%d,\"x\":%d,\"y\":%d,\"test\":%s}",
+	              e.flags, e.ethereal ? "true" : "false", e.identified ? "true" : "false", e.socketed ? "true" : "false", e.runeword ? "true" : "false", e.runeNumber, e.recordId,
+	              e.levelId, e.x, e.y, e.test ? "true" : "false");
 	json += tail;
 	return json;
 }

@@ -193,6 +193,22 @@ auto ItemTables::Load(const std::filesystem::path& modDirectory) -> std::string 
 	loadRecords(L"uniqueitems.txt", uniques_);
 	loadRecords(L"setitems.txt", sets_);
 
+	// Unique charms: uniques whose base item is a charm type.
+	{
+		const Table t     = ReadTable(excel / L"uniqueitems.txt");
+		const int   idx   = t.Column("index");
+		const int   idCol = t.Column("*ID");
+		const int   code  = t.Column("code");
+		for (const auto& r : t.rows) {
+			const std::string id = Table::Cell(r, idCol);
+			const BaseItem*   b  = BaseByCode(TrimCode(Table::Cell(r, code)));
+			if (id.empty() || b == nullptr) continue;
+			if (b->type == "scha" || b->type == "mcha" || b->type == "lcha" || b->type == "csch") {
+				uniqueCharms_.push_back({ static_cast<uint32_t>(std::strtoul(id.c_str(), nullptr, 10)), Lookup(Table::Cell(r, idx)) });
+			}
+		}
+	}
+
 	char summary[256];
 	std::snprintf(summary, sizeof(summary), "item tables: %zu bases, %zu uniques, %zu set items, %zu strings", withoutSeparators_.size(), uniques_.size(), sets_.size(), strings_.size());
 	return summary;
