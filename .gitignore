@@ -1,0 +1,10 @@
+# Build output
+plugin/build/
+
+# Offline test harness output
+plugin/test/*.exe
+plugin/test/*.obj
+plugin/test/*.out
+plugin/test/*.png
+plugin/test/page.html
+plugin/test/harness-*.json*
