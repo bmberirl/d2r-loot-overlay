@@ -396,6 +396,8 @@ void ConfigureGrail() {
 	}
 	std::filesystem::path mod(g->ctx->modDirectory);
 	if (!mod.has_filename()) mod = mod.parent_path();
+	// The loader may pass the mod's archive folder (mods\Reimagined\Reimagined.mpq).
+	if (_wcsicmp(mod.extension().c_str(), L".mpq") == 0) mod = mod.parent_path();
 	const auto dir   = g->dataDir.parent_path() / L"mods" / mod.filename();
 	const uint32_t total = g->settings.grailTotal ? g->settings.grailTotal : g->tables.GrailTotal();
 	g->grail.Configure(dir, g->settings.grailMode, total, g->tables.GrailExcluded());
