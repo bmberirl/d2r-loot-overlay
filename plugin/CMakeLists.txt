@@ -28,4 +28,5 @@ set_target_properties(LootDropOverlay PROPERTIES OUTPUT_NAME "loot-drop-overlay"
 target_link_libraries(LootDropOverlay PRIVATE D2RLPlugin::D2RLPlugin ws2_32)
 target_compile_definitions(LootDropOverlay PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
 target_compile_options(LootDropOverlay PRIVATE /W4 /permissive- /utf-8 /EHsc /guard:cf /Zi)
-target_link_options(LootDropOverlay PRIVATE /guard:cf /DEBUG /OPT:REF /OPT:ICF)
+target_link_options(LootDropOverlay PRIVATE /guard:cf /DEBUG /OPT:REF /OPT:ICF "/PDBALTPATH:%_PDB%")
+# PDBALTPATH keeps the build machine's folder out of the DLL: only the .pdb file name is recorded.
