@@ -16,6 +16,10 @@ h1{font-size:17px;margin:0;color:var(--gold);letter-spacing:.04em}
 #status{font-size:12px;color:var(--dim)}
 #status.ok{color:#8fd18f}#status.err{color:#ff7b6b}
 .note{color:var(--dim);font-size:12px;margin:0 0 12px}
+.games{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px}
+.games .gl{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em}
+.games .count{font-size:12px;color:var(--dim)}
+.games .modes label{font-size:13px;padding:4px 12px}
 section{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:12px}
 h2{font-size:14px;margin:0 0 8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 h2 .count{font-weight:normal;font-size:12px;color:var(--dim)}
@@ -42,7 +46,8 @@ input[type=checkbox]{accent-color:var(--gold);width:15px;height:15px;margin:0;fl
 </style></head>
 <body>
 <header><h1>Drop overlay filter</h1><span id="status">loading...</span></header>
-<p class="note">Checked items pop up on the drop overlay. Changes save by themselves and reach OBS straight away.</p>
+<div class="games" id="games" hidden><span class="gl">Game</span><span class="modes" id="game-modes"></span><span class="count" id="game-note"></span></div>
+<p class="note">Checked items pop up on the drop overlay. Each game keeps its own choice. Changes save by themselves and reach OBS straight away.</p>
 
 <section class="u"><h2>Uniques <span class="modes" data-k="unique"></span><span class="count" id="u-count"></span></h2>
  <div class="tools"><input type="search" id="u-search" placeholder="Search name or base, e.g. Annihilus, Grand Charm"><button data-act="u-all">Check shown</button><button data-act="u-none">Uncheck shown</button></div>
@@ -56,7 +61,7 @@ input[type=checkbox]{accent-color:var(--gold);width:15px;height:15px;margin:0;fl
  <div class="tools"><button data-act="r-all">All</button><button data-act="r-high">Pul and up</button><button data-act="r-none">None</button></div>
  <div class="grid" id="r-grid"></div></section>
 
-<section class="o"><h2>Orbs</h2><div class="grid" id="o-grid"></div></section>
+<section class="o" id="orb-section"><h2>Orbs</h2><div class="grid" id="o-grid"></div></section>
 
 <section><h2>Other drops</h2><div class="grid" id="x-grid"></div></section>
 
@@ -67,7 +72,8 @@ const ORBS=[['ka3','Corruption'],['oos','Socketing'],['ooc','Conversion'],['ooa'
 const OTHER=[['rare','Rare'],['magic','Magic'],['crafted','Crafted'],['base','Normal / superior']];
 const MODES=[['all','All'],['picked','Only checked'],['off','None']];
 const DEFAULT={v:1,unique:'all',uniques:[],set:'all',sets:[],runes:[21,22,23,24,25,26,27,28,29,30,31,32,33],orbs:ORBS.map(o=>o[0]),other:[]};
-let f=null,catalog={u:[],s:[]},saveTimer=null;
+let f=null,catalog={u:[],s:[]},saveTimer=null,game='';
+const gq=()=>game?'?game='+encodeURIComponent(game):'';
 const $=id=>document.getElementById(id);
 const status=(t,c)=>{const s=$('status');s.textContent=t;s.className=c||'';};
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
@@ -75,7 +81,7 @@ function box(checked,on){const i=el('input');i.type='checkbox';i.checked=checked
 function save(){
  clearTimeout(saveTimer);status('saving...');
  saveTimer=setTimeout(async()=>{
-  try{const r=await fetch('/api/filter',{method:'POST',headers:{'X-Loot-Overlay':'filter'},body:JSON.stringify(f)});
+  try{const r=await fetch('/api/filter'+gq(),{method:'POST',headers:{'X-Loot-Overlay':'filter'},body:JSON.stringify(f)});
    status(r.ok?'Saved':'Save failed ('+r.status+')',r.ok?'ok':'err');}
   catch(e){status('Game not running? Not saved','err');}
  },400);
@@ -118,7 +124,19 @@ document.querySelector('[data-act="r-high"]').onclick=()=>setRunes(RUNES.map((_,
 document.querySelector('[data-act="r-none"]').onclick=()=>setRunes([]);
 async function load(){
  try{
-  const [c,saved]=await Promise.all([fetch('/catalog.json').then(r=>r.json()),fetch('/filter.json').then(r=>r.json())]);
+  // Which game: ?game= in the address, else the one running now.
+  const list=await fetch('/games.json').then(r=>r.json());
+  const want=new URLSearchParams(location.search).get('game');
+  const cur=list.games.find(x=>x.id===want)||list.games.find(x=>x.id===list.current)||list.games[0];
+  game=cur.id;
+  if(list.games.length>1){
+   $('games').hidden=false;const m=$('game-modes');
+   for(const x of list.games){const l=el('label'),i=el('input');i.type='radio';i.name='game';i.checked=x.id===game;
+    i.addEventListener('change',()=>{location.search='?game='+encodeURIComponent(x.id);});l.appendChild(i);l.appendChild(el('span','',x.name));m.appendChild(l);}
+  }
+  $('game-note').textContent=game===list.current?'running now':'not running now; changes apply next time you play it';
+  $('orb-section').hidden=!cur.orbs;
+  const [c,saved]=await Promise.all([fetch('/catalog.json'+gq()).then(r=>r.json()),fetch('/filter.json'+gq()).then(r=>r.json())]);
   for(const it of c)(it.k==='s'?catalog.s:catalog.u).push(it);
   for(const p of ['u','s'])catalog[p].sort((a,b)=>a.name.localeCompare(b.name));
   f=Object.assign({},DEFAULT,saved&&typeof saved==='object'?saved:{});

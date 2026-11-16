@@ -119,6 +119,14 @@ void Tally::SetCharmCatalog(std::string json) {
 	++version_;
 }
 
+void Tally::SetGame(const std::string& name, bool orbs) {
+	std::lock_guard lock(mutex_);
+	if (name == gameName_ && orbs == gameOrbs_) return;
+	gameName_ = name;
+	gameOrbs_ = orbs;
+	++version_;
+}
+
 void Tally::SetGrail(const GrailProgress& grail) {
 	std::lock_guard lock(mutex_);
 	if (grail == grail_) return;
@@ -129,6 +137,7 @@ void Tally::SetGrail(const GrailProgress& grail) {
 auto Tally::Json() const -> std::string {
 	std::lock_guard lock(mutex_);
 	std::string json = "{\"started\":" + std::to_string(startedMs_) + ",\"version\":" + std::to_string(version_) + ",\"charmCatalog\":" + charmCatalog_;
+	json += ",\"game\":{\"name\":\"" + JsonEscape(gameName_) + "\",\"orbs\":" + (gameOrbs_ ? "true" : "false") + "}";
 	json += grail_.ok ? ",\"grail\":{\"found\":" + std::to_string(grail_.found) + ",\"total\":" + std::to_string(grail_.total) + ",\"mode\":\"" + JsonEscape(grail_.mode) + "\"}" : std::string(",\"grail\":null");
 	json += ",\"items\":[";
 	bool first = true;

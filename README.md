@@ -1,8 +1,12 @@
 # Loot Drop Overlay
 
-A D2RLoader plugin for Diablo II: Resurrected (Reimagined mod) that detects
-items as they drop on the ground and serves OBS browser-source overlays on
-`127.0.0.1`.
+A D2RLoader plugin for Diablo II: Resurrected, original or with the Reimagined
+mod, that detects items as they drop on the ground and serves OBS browser-source
+overlays on `127.0.0.1`.
+
+Each game keeps its own filter, tally and drop log. With Reimagined the item
+names come from the mod's text files; with the original game (or a mod without
+text files) they are read from the game's own tables while it runs.
 
 - `http://127.0.0.1:8766/`: a pop-up card for each drop. Defaults to uniques,
   sets, the seven Reimagined orbs, and runes above #20.
@@ -41,10 +45,14 @@ offsets in `loot-drop-overlay.ini`, then run `lootdrop-rescan`.
 `%USERPROFILE%\Saved Games\Diablo II Resurrected\loot-drop-overlay\`:
 
 - `loot-drop-overlay.ini`: port, scanner settings and native offsets
-- `drops.jsonl`: every drop, one JSON object per line
-- `tally.json`: the stream tally
+- one folder per game (`d2r\`, `reimagined\`), each with:
+  - `drops.jsonl`: every drop, one JSON object per line
+  - `tally.json`: the stream tally
+  - `drop-filter.json`: the choice made on `/filter`
+  - `catalog.json`: the game's unique and set items, so `/filter` can edit a game that is not running
 
-Plugin log: `<game>\mods\Reimagined\d2rloader\logs\loot-drop-overlay.log`
+Plugin log: `<game>\mods\Reimagined\d2rloader\logs\loot-drop-overlay.log` for a
+mod-folder install, `<game>\d2rloader\logs\loot-drop-overlay.log` for a global one.
 
 ## Console commands
 
@@ -60,10 +68,14 @@ git submodule update --init
 plugin\build.bat
 ```
 
-Copy `plugin\build\loot-drop-overlay.dll` to
-`<game>\mods\Reimagined\d2rloader\plugins\`, with the game closed. Install it
-only for the offline Reimagined mod: ReimaginedLadder checks which plugins you
-run before letting you into multiplayer games.
+Copy `plugin\build\loot-drop-overlay.dll` with the game closed, to one of:
+
+- `<game>\mods\Reimagined\d2rloader\plugins\`: Reimagined only.
+- `<game>\d2rloader\plugins\`: the original game and every mod.
+
+ReimaginedLadder checks which plugins you run before letting you into
+multiplayer games. The plugin refuses to start in any mod with "Ladder" in its
+name, but if you play Ladder, use only the Reimagined-only folder.
 
 `plugin\test\build-harness.bat` builds an offline harness. It runs the web
 server and tally without the game.

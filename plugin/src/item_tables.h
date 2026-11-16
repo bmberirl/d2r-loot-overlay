@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -27,8 +28,28 @@ struct BaseItem {
 	std::string type2;    // second type, e.g. "gem4" (perfect) for gems
 };
 
+// Rows read from the running game's compiled tables (original D2R or a mod
+// without text files on disk).
+struct GameItemRow {
+	std::string code;
+	uint16_t    type  = 0;  // ItemTypes row
+	uint16_t    type2 = 0;  // 0 = none
+};
+struct GameRecordRow {
+	uint32_t    id = 0;     // *ID
+	std::string key;        // index, the string key of its name
+	std::string code;       // base item code
+	uint8_t     flags = 0;  // bit 0 spawnable, bit 2 disabled
+};
+
 class ItemTables {
 public:
+	// Builds the same tables from the running game. lookup turns a string key into
+	// display text ("" when the game has no such key).
+	auto LoadFromGame(const std::vector<std::string>& typeCodes, const std::vector<GameItemRow>& items, const std::vector<GameRecordRow>& uniques,
+	                  const std::vector<GameRecordRow>& sets, const std::function<std::string(const std::string&)>& lookup) -> std::string;
+	// True when the game has Reimagined's orbs.
+	auto HasOrbs() const -> bool { return BaseByCode("ka3") != nullptr && BaseByCode("oos") != nullptr; }
 	// modDirectory is PluginContext::modDirectory. Returns a one-line summary.
 	auto Load(const std::filesystem::path& modDirectory) -> std::string;
 

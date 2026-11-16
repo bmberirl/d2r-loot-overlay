@@ -95,20 +95,22 @@ auto SseEvent(const DropEvent& e) -> std::string {
 
 }
 
-HttpServer::HttpServer(DropFeed& feed, Tally& tally, FilterStore& filter, Pages pages, std::function<void()> onReset)
-    : feed_(feed), tally_(tally), filter_(filter), pages_(std::move(pages)), onReset_(std::move(onReset)) {}
+HttpServer::HttpServer(DropFeed& feed, Tally& tally, Games& games, Pages pages, std::function<void()> onReset)
+    : feed_(feed), tally_(tally), games_(games), pages_(std::move(pages)), onReset_(std::move(onReset)) {}
 
 HttpServer::~HttpServer() {
 	Stop();
 }
 
 auto HttpServer::Start(uint16_t port, std::string* error) -> bool {
-	WSADATA wsa {};
-	if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
-		if (error) *error = "WSAStartup failed";
-		return false;
+	if (!wsaStarted_) {
+		WSADATA wsa {};
+		if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+			if (error) *error = "WSAStartup failed";
+			return false;
+		}
+		wsaStarted_ = true;
 	}
-	wsaStarted_ = true;
 
 	SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (s == INVALID_SOCKET) {
@@ -124,7 +126,7 @@ auto HttpServer::Start(uint16_t port, std::string* error) -> bool {
 	addr.sin_port        = htons(port);
 	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	if (bind(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 || listen(s, 8) != 0) {
-		if (error) *error = "port " + std::to_string(port) + " is already in use";
+		if (error) *error = "port " + std::to_string(port) + " is in use (Windows error " + std::to_string(WSAGetLastError()) + ")";
 		closesocket(s);
 		return false;
 	}
@@ -191,7 +193,9 @@ void HttpServer::Run() {
 			const std::string body = c.request.substr(headerEnd + 4);
 			if (HeaderValue(c.request.substr(0, headerEnd + 2), "x-loot-overlay") != "filter") {
 				c.pendingOut = Response(403, "Forbidden", "text/plain", "missing filter header");
-			} else if (!filter_.Set(body)) {
+			} else if (FilterStore* store = games_.Filter(QueryParam(t, "game")); store == nullptr) {
+				c.pendingOut = Response(404, "Not Found", "text/plain", "unknown game");
+			} else if (!store->Set(body)) {
 				c.pendingOut = Response(400, "Bad Request", "text/plain", "filter refused");
 			} else {
 				c.pendingOut = Response(200, "OK", "application/json", "{\"ok\":true}");
@@ -217,10 +221,14 @@ void HttpServer::Run() {
 			c.pendingOut = Response(200, "OK", "text/html; charset=utf-8", pages_.filter, PageCsp);
 			c.closeWhenFlushed = true;
 		} else if (path == "/catalog.json") {
-			c.pendingOut = Response(200, "OK", "application/json", pages_.catalog);
+			c.pendingOut = Response(200, "OK", "application/json", games_.Catalog(QueryParam(t, "game")));
 			c.closeWhenFlushed = true;
 		} else if (path == "/filter.json") {
-			c.pendingOut = Response(200, "OK", "application/json", filter_.Json());
+			FilterStore* store = games_.Filter(QueryParam(t, "game"));
+			c.pendingOut = Response(200, "OK", "application/json", store ? store->Json() : std::string("null"));
+			c.closeWhenFlushed = true;
+		} else if (path == "/games.json") {
+			c.pendingOut = Response(200, "OK", "application/json", games_.ListJson());
 			c.closeWhenFlushed = true;
 		} else if (path == "/tally.json") {
 			c.pendingOut = Response(200, "OK", "application/json", tally_.Json());
@@ -250,8 +258,8 @@ void HttpServer::Run() {
 			c.lastSeq    = feed_.LastSeq();
 			c.lastTally  = tally_.Version();
 			c.pendingOut += "event: tally\ndata: " + tally_.Json() + "\n\n";
-			c.lastFilter  = filter_.Version();
-			c.pendingOut += "event: filter\ndata: " + filter_.Json() + "\n\n";
+			c.lastFilter  = games_.CurrentFilter().Version();
+			c.pendingOut += "event: filter\ndata: " + games_.CurrentFilter().Json() + "\n\n";
 			if (replay > 0) {
 				for (const auto& e : feed_.Recent(replay)) {
 					c.pendingOut += SseEvent(e);
@@ -297,7 +305,7 @@ void HttpServer::Run() {
 
 		const uint64_t lastSeq      = feed_.LastSeq();
 		const uint64_t tallyVersion = tally_.Version();
-		const uint64_t filterVersion = filter_.Version();
+		const uint64_t filterVersion = games_.CurrentFilter().Version();
 		for (auto& c : clients) {
 			bool dead = false;
 			if (ready > 0 && FD_ISSET(c.sock, &readSet)) {
@@ -340,7 +348,7 @@ void HttpServer::Run() {
 				}
 				if (filterVersion != c.lastFilter) {
 					c.lastFilter  = filterVersion;
-					c.pendingOut += "event: filter\ndata: " + filter_.Json() + "\n\n";
+					c.pendingOut += "event: filter\ndata: " + games_.CurrentFilter().Json() + "\n\n";
 				}
 				if (c.pendingOut.empty() && now - c.lastWrite > KeepAlive) {
 					c.pendingOut = ": keepalive\n\n";

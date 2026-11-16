@@ -89,6 +89,7 @@ function render(t){
  }
  for(const sec of sections){
   if(sec==='orb'){
+   if(t.game&&t.game.orbs===false)continue; // the original game has no orbs
    panel.appendChild(el('h2','','Orbs'));
    for(const [name,codes] of ORBS){
     const n=codes.reduce((a,c)=>a+(by[c]?by[c].count:0),0);counts['orb:'+name]=n;

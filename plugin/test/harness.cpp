@@ -3,7 +3,7 @@
 //        with modDir and grailDir it reads the real grail file, else shows a sample grail)
 #include "../src/drop_feed.h"
 #include "../src/filter_html.h"
-#include "../src/filter_store.h"
+#include "../src/games.h"
 #include "../src/grail.h"
 #include "../src/item_tables.h"
 #include "../src/http_server.h"
@@ -35,8 +35,20 @@ int main(int argc, char** argv) {
 	} else {
 		tally.SetGrail({ true, 363, 1874, "hardcore" });
 	}
-	LootDrop::FilterStore filter;
-	filter.Load(L"harness-filter.json");
+	// Two games: "d2r" was played before (its item list is on disk), Reimagined runs now.
+	CreateDirectoryW(L"harness-data", nullptr);
+	CreateDirectoryW(L"harness-data\\d2r", nullptr);
+	if (FILE* f = nullptr; _wfopen_s(&f, L"harness-data\\d2r\\catalog.json", L"wb") == 0 && f) {
+		std::fputs(R"([{"k":"u","id":120,"name":"Annihilus","base":"Small Charm"},{"k":"u","id":265,"name":"Harlequin Crest","base":"Shako"}])", f);
+		std::fclose(f);
+	}
+	if (FILE* f = nullptr; _wfopen_s(&f, L"harness-data\\d2r\\game.txt", L"wb") == 0 && f) {
+		std::fputs("D2R\nno-orbs\n", f);
+		std::fclose(f);
+	}
+	LootDrop::Games games;
+	games.Init(L"harness-data", { "reimagined", "Reimagined", true });
+	tally.SetGame("Reimagined", true);
 	std::string catalog = R"([{"k":"u","id":381,"name":"Annihilus","base":"Small Charm"},{"k":"u","id":274,"name":"Harlequin Crest","base":"Shako"},{"k":"s","id":52,"name":"Angelic Halo","base":"Ring"}])";
 	if (!tables.Catalog().empty()) {
 		catalog = "[";
@@ -45,7 +57,8 @@ int main(int argc, char** argv) {
 		}
 		catalog += "]";
 	}
-	LootDrop::HttpServer server(feed, tally, filter, { LootDrop::OverlayHtml, LootDrop::TallyHtml, LootDrop::ControlHtml, LootDrop::FilterHtml, catalog }, [&] { tally.Reset(); std::printf("RESET\n"); std::fflush(stdout); });
+	games.SetCatalog(catalog, true);
+	LootDrop::HttpServer server(feed, tally, games, { LootDrop::OverlayHtml, LootDrop::TallyHtml, LootDrop::ControlHtml, LootDrop::FilterHtml }, [&] { tally.Reset(); std::printf("RESET\n"); std::fflush(stdout); });
 	std::string err;
 	if (!server.Start(static_cast<uint16_t>(port), &err)) { std::printf("start failed: %s\n", err.c_str()); return 1; }
 	std::printf("listening on %u\n", port); std::fflush(stdout);

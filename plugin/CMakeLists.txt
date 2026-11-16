@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.29)
-project(LootDropOverlay VERSION 0.2.0 LANGUAGES CXX RC)
+project(LootDropOverlay VERSION 0.3.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,6 +20,7 @@ add_library(LootDropOverlay SHARED
 	src/ground_scanner.cpp
 	src/grail.cpp
 	src/filter_store.cpp
+	src/games.cpp
 	src/settings.cpp
 	src/tally.cpp
 	src/loot_drop_overlay.rc

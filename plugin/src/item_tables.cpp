@@ -240,6 +240,58 @@ auto ItemTables::Load(const std::filesystem::path& modDirectory) -> std::string 
 	return summary;
 }
 
+auto ItemTables::LoadFromGame(const std::vector<std::string>& typeCodes, const std::vector<GameItemRow>& items, const std::vector<GameRecordRow>& uniques,
+                              const std::vector<GameRecordRow>& sets, const std::function<std::string(const std::string&)>& lookup) -> std::string {
+	auto resolve = [&](const std::string& key) {
+		if (key.empty() || strings_.count(key)) return;
+		std::string text = lookup(key);
+		for (size_t c = text.find("\xC3\xBF" "c"); c != std::string::npos; c = text.find("\xC3\xBF" "c")) text.erase(c, 4);
+		if (!text.empty()) strings_[key] = text;
+	};
+	auto typeCode = [&](uint16_t row) { return row < typeCodes.size() ? TrimCode(typeCodes[row]) : std::string {}; };
+
+	// The compiled Items table is Weapons + Armor + Misc without separator rows, which
+	// is the class id order (the same ordering Calibrate settles on for text files).
+	withSeparators_.clear();
+	withoutSeparators_.clear();
+	for (const auto& row : items) {
+		BaseItem b;
+		b.code    = TrimCode(row.code);
+		b.nameKey = b.code;
+		b.type    = typeCode(row.type);
+		b.type2   = row.type2 ? typeCode(row.type2) : std::string {};
+		resolve(b.nameKey);
+		b.name = Lookup(b.nameKey);
+		withoutSeparators_.push_back(b);
+	}
+	withSeparators_ = withoutSeparators_;
+	choice_         = 1;
+	calibrated_     = true;
+
+	for (const auto& [rows, prefix, map] : { std::tuple { &uniques, "u:", &uniques_ }, std::tuple { &sets, "s:", &sets_ } }) {
+		for (const auto& r : *rows) {
+			resolve(r.key);
+			(*map)[r.id] = r.key;
+			const std::string code     = TrimCode(r.code);
+			const BaseItem*   b        = BaseByCode(code);
+			const bool        disabled = (r.flags & 0x4) != 0;
+			if (disabled || code.empty()) continue;
+			if (r.flags & 0x1) {
+				++grailTotal_;
+				catalog_.push_back({ prefix[0], r.id, Lookup(r.key), b ? b->name : code });
+				if (prefix[0] == 'u' && b && (b->type == "scha" || b->type == "mcha" || b->type == "lcha" || b->type == "csch")) {
+					uniqueCharms_.push_back({ r.id, Lookup(r.key) });
+				}
+			} else {
+				grailExcluded_.insert(prefix + Lookup(r.key));
+			}
+		}
+	}
+	char summary[256];
+	std::snprintf(summary, sizeof(summary), "item tables from the game: %zu bases, %zu uniques, %zu set items, %zu names, grail %u", withoutSeparators_.size(), uniques_.size(), sets_.size(), strings_.size(), grailTotal_);
+	return summary;
+}
+
 auto ItemTables::Lookup(const std::string& key) const -> std::string {
 	const auto it = strings_.find(key);
 	return it != strings_.end() ? it->second : key;

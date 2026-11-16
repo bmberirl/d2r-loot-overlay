@@ -8,3 +8,4 @@ plugin/test/*.out
 plugin/test/*.png
 plugin/test/page.html
 plugin/test/harness-*.json*
+plugin/test/harness-data/

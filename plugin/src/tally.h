@@ -32,6 +32,8 @@ public:
 	void SetCharmCatalog(std::string json);
 	// Holy grail progress shown above the tally (from the Grail On! plugin's file).
 	void SetGrail(const GrailProgress& grail);
+	// The game this tally belongs to; the page hides orbs for games without them.
+	void SetGame(const std::string& name, bool orbs);
 
 	auto Json() const -> std::string;
 	auto Version() const -> uint64_t;
@@ -45,6 +47,8 @@ private:
 	std::map<std::string, TallyEntry> entries_;  // by item code
 	std::string                       charmCatalog_ = "[]";
 	GrailProgress                     grail_;
+	std::string                       gameName_;
+	bool                              gameOrbs_ = true;
 	int64_t                           startedMs_ = 0;
 	uint64_t                          version_   = 1;
 };

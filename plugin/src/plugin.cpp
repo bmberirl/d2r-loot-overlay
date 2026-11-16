@@ -3,7 +3,7 @@
 
 #include "drop_feed.h"
 #include "filter_html.h"
-#include "filter_store.h"
+#include "games.h"
 #include "grail.h"
 #include "ground_scanner.h"
 #include "http_server.h"
@@ -19,6 +19,8 @@
 #include <shlobj.h>
 
 #include <atomic>
+#include <cctype>
+#include <cstring>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -38,7 +40,7 @@ static constexpr D2RL::PluginInfo Info {
 	.abiVersion  = D2RL_PLUGIN_ABI_VERSION,
 	.id          = PluginId,
 	.name        = "Loot Drop Overlay",
-	.version     = "0.2.0",
+	.version     = "0.3.0",
 	.author      = "bmberirl",
 	.description = "Announces ground drops and serves an OBS browser-source overlay on 127.0.0.1.",
 	.flags       = D2RL::PluginFlags::Client,
@@ -55,7 +57,12 @@ struct State {
 	std::unique_ptr<HttpServer>      server;
 	ItemTables                       tables;
 	Tally                            tally;
-	FilterStore                      filter;
+	Games                            games;
+	std::filesystem::path            gameDir;     // this game's tally, filter and drop log
+	std::filesystem::path            grailDir;    // where Grail On! saves this game's grail
+	bool                             needGameTables = false;
+	uint32_t                         tableTries     = 0;
+	std::atomic<bool>                grailReady { false };
 	GroundScanner                    scanner;
 	GrailReader                      grail;  // watchdog thread only
 	std::atomic<bool>                unloading { false };
@@ -248,10 +255,104 @@ void LeaveGame(const char* source) {
 	Log(std::string("left game (") + source + ")");
 }
 
+void TablesReady();
+
+// Row layouts of the compiled tables, measured on D2R 3.4.95032 (D2RLoader 1.3.1).
+// A different row size means a different layout, so nothing is read then.
+constexpr uint32_t ItemTypesRowSize = 232;  // code at 0
+constexpr uint32_t ItemsRowSize     = 448;  // code at 0x80, type at 0x12E, type2 at 0x130
+constexpr uint32_t UniquesRowSize   = 348;  // id at 0, name key at 2, base code at 0x28, flags at 0x2C
+constexpr uint32_t SetItemsRowSize  = 460;  // same leading fields as UniqueItems
+
+void LoadGameTables() {
+	const D2RL::DataTableService* dt = nullptr;
+	const D2RL::LocalizationService* loc = nullptr;
+	if (g->ctx->QueryService(&dt) != D2RL::ServiceQueryResult::Success) dt = nullptr;
+	if (g->ctx->QueryService(&loc) != D2RL::ServiceQueryResult::Success) loc = nullptr;
+	if (!dt || !loc) {
+		g->needGameTables = false;
+		Log("the game's item tables cannot be read (no table or text service); names will show as codes");
+		return;
+	}
+	using D2RL::DataTables::Bank;
+	using D2RL::DataTables::TableId;
+	auto table = [&](TableId id, uint32_t rowSize, D2RL::DataTables::TableView* v) {
+		for (const Bank bank : { Bank::Rotw, Bank::Lod }) {
+			*v = { .structSize = D2RL::DataTables::TableViewSize, .bank = bank };
+			if (dt->getTable(g->ctx, bank, id, v) == D2RL::DataTables::Result::Success && v->rows && v->rowCount > 0) {
+				return v->rowSize == rowSize ? 1 : -1;  // -1: unknown layout
+			}
+		}
+		return 0;  // not loaded yet
+	};
+	D2RL::DataTables::TableView types {}, items {}, uniques {}, sets {};
+	const int rt = table(TableId::ItemTypes, ItemTypesRowSize, &types);
+	const int ri = table(TableId::Items, ItemsRowSize, &items);
+	const int ru = table(TableId::UniqueItems, UniquesRowSize, &uniques);
+	const int rs = table(TableId::SetItems, SetItemsRowSize, &sets);
+	if (rt < 0 || ri < 0 || ru < 0 || rs < 0) {
+		g->needGameTables = false;
+		Log("the game's item tables have an unknown layout (rows of " + std::to_string(types.rowSize) + "/" + std::to_string(items.rowSize) + "/" + std::to_string(uniques.rowSize) + "/" +
+		    std::to_string(sets.rowSize) + " bytes); names will show as codes");
+		return;
+	}
+	if (rt == 0 || ri == 0 || ru == 0 || rs == 0) {
+		if (++g->tableTries == 40) Log("still waiting for the game's item tables");
+		return;
+	}
+	g->needGameTables = false;
+
+	auto fixed = [](const uint8_t* p, size_t max) {
+		size_t n = 0;
+		while (n < max && p[n] != 0) ++n;
+		return std::string(reinterpret_cast<const char*>(p), n);
+	};
+	std::vector<std::string> typeCodes;
+	for (uint32_t i = 0; i < types.rowCount; ++i) {
+		typeCodes.push_back(fixed(static_cast<const uint8_t*>(types.rows) + static_cast<size_t>(i) * types.rowSize, 4));
+	}
+	std::vector<GameItemRow> itemRows;
+	for (uint32_t i = 0; i < items.rowCount; ++i) {
+		const auto* r = static_cast<const uint8_t*>(items.rows) + static_cast<size_t>(i) * items.rowSize;
+		GameItemRow row;
+		row.code = fixed(r + 0x80, 4);
+		std::memcpy(&row.type, r + 0x12E, 2);
+		std::memcpy(&row.type2, r + 0x130, 2);
+		itemRows.push_back(row);
+	}
+	auto records = [&](const D2RL::DataTables::TableView& v) {
+		std::vector<GameRecordRow> out;
+		for (uint32_t i = 0; i < v.rowCount; ++i) {
+			const auto* r = static_cast<const uint8_t*>(v.rows) + static_cast<size_t>(i) * v.rowSize;
+			GameRecordRow row;
+			uint16_t id = 0;
+			std::memcpy(&id, r, 2);
+			row.id    = id;
+			row.key   = fixed(r + 2, 0x26);
+			row.code  = fixed(r + 0x28, 4);
+			row.flags = r[0x2C];
+			if (!row.key.empty()) out.push_back(row);
+		}
+		return out;
+	};
+	auto lookup = [&](const std::string& key) -> std::string {
+		std::string buf(512, '\0');
+		uint32_t need = 0;
+		if (loc->getStringByKey(g->ctx, ("d2r:" + key).c_str(), buf.data(), static_cast<uint32_t>(buf.size()), &need) != D2RL::Localization::Result::Success) return {};
+		buf.resize(std::strlen(buf.c_str()));
+		return buf;
+	};
+	Log(g->tables.LoadFromGame(typeCodes, itemRows, records(uniques), records(sets), lookup));
+	TablesReady();
+}
+
 void __cdecl Tick(const D2RL::PluginContext*, void*) noexcept {
 	if (!g || g->unloading) return;
 	g->tickQueued = false;
 	if (++g->frame == 1) Log("UI tick running");
+	// Without text files on disk (the original game), the item names come from the
+	// game's own tables, which can only be read on the game thread.
+	if (g->needGameTables && g->frame % 60 == 0) LoadGameTables();
 	// Fallback for when gameplay events do not arrive: poll D2RCore's IsInGame twice a second.
 	static IsInGameFn isInGame = reinterpret_cast<IsInGameFn>(GetProcAddress(GetModuleHandleW(L"D2RCore.dll"), "IsInGame"));
 	if (isInGame && g->frame % 30 == 0) {
@@ -314,7 +415,7 @@ auto __cdecl CmdStatus(D2R::Game::Client*, const D2RL::ConsoleCommandContext*, v
 	std::snprintf(buf, sizeof(buf), "item units last scan: %u, read faults: %llu, level %d", g->scanner.LastCount(), static_cast<unsigned long long>(g->scanner.Faults()), g->levelId);
 	Say(buf);
 	Say(g->tables.CalibrationSummary());
-	Say("log: " + std::filesystem::path(g->dataDir / L"drops.jsonl").string());
+	Say("log: " + std::filesystem::path(g->gameDir / L"drops.jsonl").string());
 	Say("tally: " + std::to_string(g->tally.Total()) + " orbs/runes/gems; overlay /tally, reset with lootdrop-reset or /control");
 	return D2RL::ConsoleCommandResult::Handled;
 }
@@ -403,21 +504,56 @@ auto SavedGamesDir() -> std::filesystem::path {
 
 void PollGrail();
 
-// Grail On! keeps its grail in <Saved Games>\Diablo II Resurrected\mods\<mod>\.
+// Grail On! keeps its grail beside the game's saves: <Saved Games>\Diablo II
+// Resurrected\mods\<mod>\ for a mod, the Diablo II Resurrected folder itself otherwise.
 void ConfigureGrail() {
-	if (!g->settings.grailEnabled || !g->ctx->modDirectory) {
+	if (!g->settings.grailEnabled) {
 		Log("grail progress off");
 		return;
 	}
-	std::filesystem::path mod(g->ctx->modDirectory);
-	if (!mod.has_filename()) mod = mod.parent_path();
-	// The loader may pass the mod's archive folder (mods\Reimagined\Reimagined.mpq).
-	if (_wcsicmp(mod.extension().c_str(), L".mpq") == 0) mod = mod.parent_path();
-	const auto dir   = g->dataDir.parent_path() / L"mods" / mod.filename();
+	const auto& dir  = g->grailDir;
 	const uint32_t total = g->settings.grailTotal ? g->settings.grailTotal : g->tables.GrailTotal();
 	g->grail.Configure(dir, g->settings.grailMode, total, g->tables.GrailExcluded());
 	Log("grail: " + dir.string() + ", mode " + g->settings.grailMode + ", total " + std::to_string(total) + " (" + std::to_string(g->tables.GrailExcluded().size()) + " non-drop items left out)");
 	PollGrail();
+	g->grailReady = true;  // from here on only the watchdog thread polls
+}
+
+// Item names are known: publish the item list and charm list, and start the grail.
+void TablesReady() {
+	g->tally.SetCharmCatalog(CharmCatalogJson());
+	const bool orbs = g->tables.HasOrbs();
+	g->games.SetCatalog(ItemCatalogJson(), orbs);
+	g->tally.SetGame(g->games.Current().name, orbs);
+	Log("unique charms known: " + std::to_string(g->tables.UniqueCharms().size()) + ", " + std::to_string(g->tables.Catalog().size()) + " uniques and set items to choose from" + (orbs ? ", orbs" : ", no orbs"));
+	ConfigureGrail();
+}
+
+// The game being played: a mod folder name, or the original game.
+auto DetectGame(const wchar_t* modDirectory, std::filesystem::path* modFolder) -> GameInfo {
+	if (modDirectory && *modDirectory) {
+		std::filesystem::path p(modDirectory);
+		if (!p.has_filename()) p = p.parent_path();
+		// The loader may pass the mod's archive folder (mods\Reimagined\Reimagined.mpq).
+		if (_wcsicmp(p.extension().c_str(), L".mpq") == 0) p = p.parent_path();
+		if (_wcsicmp(p.parent_path().filename().c_str(), L"mods") == 0 && !p.filename().empty()) {
+			*modFolder = p;
+			const std::string name = p.filename().string();
+			return { GameIdFromName(name), name, false };
+		}
+	}
+	return { "d2r", "D2R", false };
+}
+
+// 0.2.0 kept one tally and filter for Reimagined (its only game) at the top level.
+void MoveLegacyData(const std::filesystem::path& gameDir) {
+	std::error_code ec;
+	for (const wchar_t* f : { L"tally.json", L"drop-filter.json", L"drops.jsonl" }) {
+		const auto from = g->dataDir / f, to = gameDir / f;
+		if (std::filesystem::exists(from, ec) && !std::filesystem::exists(to, ec)) {
+			if (MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_WRITE_THROUGH)) Log("moved " + from.filename().string() + " into " + gameDir.filename().string() + "\\");
+		}
+	}
 }
 
 // Called at load and from the watchdog thread only (GrailReader is not shared).
@@ -458,7 +594,25 @@ D2RL_PLUGIN_EXPORT auto D2RLoaderLoadPlugin(const D2RL::PluginContext* context) 
 		const auto ini = g->dataDir / L"loot-drop-overlay.ini";
 		EnsureDefaultSettings(ini);
 		g->settings = LoadSettings(ini);
-		g->feed.SetLogPath(g->dataDir / L"drops.jsonl");
+
+		std::filesystem::path modFolder;
+		GameInfo game = DetectGame(context->modDirectory, &modFolder);
+		// A global install loads in every mod. ReimaginedLadder checks plugins before
+		// online play, so the plugin stays out of any Ladder mod.
+		std::string lower = game.name;
+		for (auto& ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+		if (lower.find("ladder") != std::string::npos) {
+			context->LogWarn(("[loot-drop] not started in " + game.name + ": Ladder mods check plugins before online play. Remove loot-drop-overlay.dll from this mod's or the global plugins folder if Ladder refuses you.").c_str());
+			delete g;
+			g = nullptr;
+			return false;
+		}
+		g->grailDir = modFolder.empty() ? g->dataDir.parent_path() : g->dataDir.parent_path() / L"mods" / modFolder.filename();
+		g->games.Init(g->dataDir, game);
+		g->gameDir = g->games.CurrentDir();
+		if (game.id == "reimagined") MoveLegacyData(g->gameDir);
+		Log("game: " + game.name + " (data in " + g->gameDir.string() + ")");
+		g->feed.SetLogPath(g->gameDir / L"drops.jsonl");
 
 		g->threads   = Query<D2RL::ThreadService>(context);
 		g->lifecycle = Query<D2RL::LifecycleService>(context);
@@ -470,22 +624,23 @@ D2RL_PLUGIN_EXPORT auto D2RLoaderLoadPlugin(const D2RL::PluginContext* context) 
 			return false;
 		}
 
-		if (context->modDirectory) {
+		if (context->modDirectory && *context->modDirectory) {
 			Log(g->tables.Load(context->modDirectory));
 		}
+		// No text files on disk (the original game): read the game's own tables once
+		// the UI tick runs on the game thread.
+		g->needGameTables = !g->tables.Loaded();
 
 		std::string why;
 		g->scanner.Init(context->exeBase, g->settings.layout, &why);
 		if (!why.empty()) Log(why);
 
-		g->tally.Load(g->dataDir / L"tally.json");
-		g->tally.SetCharmCatalog(CharmCatalogJson());
-		ConfigureGrail();
-		Log("unique charms known: " + std::to_string(g->tables.UniqueCharms().size()));
-		Log("tally loaded: " + std::to_string(g->tally.Total()) + " orbs/runes/gems so far");
-		g->filter.Load(g->dataDir / L"drop-filter.json");
-		Log(std::string("drop filter: ") + (g->filter.Json() == "null" ? "none saved (defaults)" : "loaded") + ", " + std::to_string(g->tables.Catalog().size()) + " uniques and set items to choose from");
-		g->server = std::make_unique<HttpServer>(g->feed, g->tally, g->filter, HttpServer::Pages { OverlayHtml, TallyHtml, ControlHtml, FilterHtml, ItemCatalogJson() }, [] {
+		g->tally.Load(g->gameDir / L"tally.json");
+		g->tally.SetGame(game.name, false);
+		Log("tally loaded: " + std::to_string(g->tally.Total()) + " items so far");
+		Log(std::string("drop filter: ") + (g->games.CurrentFilter().Json() == "null" ? "none saved (defaults)" : "loaded"));
+		if (!g->needGameTables) TablesReady();
+		g->server = std::make_unique<HttpServer>(g->feed, g->tally, g->games, HttpServer::Pages { OverlayHtml, TallyHtml, ControlHtml, FilterHtml }, [] {
 			if (g) {
 				g->tally.Reset();
 				Log("tally reset from the control page");
@@ -495,7 +650,8 @@ D2RL_PLUGIN_EXPORT auto D2RLoaderLoadPlugin(const D2RL::PluginContext* context) 
 		if (g->server->Start(g->settings.port, &err)) {
 			Log("overlay at http://127.0.0.1:" + std::to_string(g->settings.port) + "/");
 		} else {
-			context->LogWarn(("[loot-drop] overlay server not started: " + err + " (change port in loot-drop-overlay.ini)").c_str());
+			// Often the previous game's connections are still closing; retried every 5 s.
+			context->LogWarn(("[loot-drop] overlay server not started yet: " + err + "; retrying every 5 seconds (if it never starts, change port in loot-drop-overlay.ini)").c_str());
 		}
 
 		for (const auto kind : { D2RL::Lifecycle::GameplayEventKind::GameJoined, D2RL::Lifecycle::GameplayEventKind::GameLeft, D2RL::Lifecycle::GameplayEventKind::LocalPlayerReady, D2RL::Lifecycle::GameplayEventKind::LevelChanged }) {
@@ -538,7 +694,11 @@ D2RL_PLUGIN_EXPORT auto D2RLoaderLoadPlugin(const D2RL::PluginContext* context) 
 					}
 				}
 				lastFrame = frame;
-				if (++grailPolls % 2 == 0) PollGrail();
+				if (++grailPolls % 2 == 0 && g->grailReady) PollGrail();
+				if (grailPolls % 5 == 0 && g->server && !g->server->Running()) {
+					std::string err;
+					if (g->server->Start(g->settings.port, &err)) Log("overlay at http://127.0.0.1:" + std::to_string(g->settings.port) + "/ (after retrying)");
+				}
 			}
 		});
 		return true;
