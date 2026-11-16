@@ -18,6 +18,7 @@ add_library(LootDropOverlay SHARED
 	src/http_server.cpp
 	src/item_tables.cpp
 	src/ground_scanner.cpp
+	src/grail.cpp
 	src/settings.cpp
 	src/tally.cpp
 	src/loot_drop_overlay.rc

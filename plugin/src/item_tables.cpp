@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <tuple>
 
 namespace LootDrop {
 
@@ -209,8 +210,26 @@ auto ItemTables::Load(const std::filesystem::path& modDirectory) -> std::string 
 		}
 	}
 
+	// Grail totals: what Grail On! lists as uniques and set items, minus what cannot drop
+	// (crafted and quest items such as Hellfire Torch, key and gem grabbers).
+	for (const auto& [file, prefix, baseColumn] : { std::tuple { L"uniqueitems.txt", "u:", "code" }, std::tuple { L"setitems.txt", "s:", "item" } }) {
+		const Table t     = ReadTable(excel / file);
+		const int   idx   = t.Column("index");
+		const int   dis   = t.Column("disabled");
+		const int   spawn = t.Column("spawnable");
+		const int   base  = t.Column(baseColumn);
+		for (const auto& r : t.rows) {
+			if (Table::Cell(r, dis) == "1" || TrimCode(Table::Cell(r, base)).empty()) continue;
+			if (Table::Cell(r, spawn) == "1") {
+				++grailTotal_;
+			} else {
+				grailExcluded_.insert(prefix + Lookup(Table::Cell(r, idx)));
+			}
+		}
+	}
+
 	char summary[256];
-	std::snprintf(summary, sizeof(summary), "item tables: %zu bases, %zu uniques, %zu set items, %zu strings", withoutSeparators_.size(), uniques_.size(), sets_.size(), strings_.size());
+	std::snprintf(summary, sizeof(summary), "item tables: %zu bases, %zu uniques, %zu set items, %zu strings, grail %u", withoutSeparators_.size(), uniques_.size(), sets_.size(), strings_.size(), grailTotal_);
 	return summary;
 }
 

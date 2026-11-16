@@ -1,6 +1,9 @@
 // Offline harness: runs the plugin's HTTP server, feed and tally without the game.
-// Usage: harness.exe <port> <seconds>   (publishes a drop every second)
+// Usage: harness.exe <port> <seconds> [modDir grailDir]   (publishes a drop every second;
+//        with modDir and grailDir it reads the real grail file, else shows a sample grail)
 #include "../src/drop_feed.h"
+#include "../src/grail.h"
+#include "../src/item_tables.h"
 #include "../src/http_server.h"
 #include "../src/overlay_html.h"
 #include "../src/tally.h"
@@ -17,6 +20,19 @@ int main(int argc, char** argv) {
 	LootDrop::Tally tally;
 	tally.Load(L"harness-tally.json");
 	tally.SetCharmCatalog(R"([{"id":381,"name":"Annihilus"},{"id":359,"name":"Gheed's Fortune"},{"id":1428,"name":"Valknut"},{"id":1389,"name":"Queen's Call"}])");
+	if (argc > 4) {
+		LootDrop::ItemTables tables;
+		std::puts(tables.Load(argv[3]).c_str());
+		LootDrop::GrailReader grail;
+		grail.Configure(argv[4], "auto", tables.GrailTotal(), tables.GrailExcluded());
+		grail.Poll();
+		const auto& p = grail.Progress();
+		std::printf("grail ok=%d mode=%s found=%u total=%u excluded=%zu err=%s\n", p.ok, p.mode.c_str(), p.found, p.total, tables.GrailExcluded().size(), grail.LastError().c_str());
+		std::printf("poll again changed=%d\n", grail.Poll());
+		tally.SetGrail(p);
+	} else {
+		tally.SetGrail({ true, 363, 1874, "hardcore" });
+	}
 	LootDrop::HttpServer server(feed, tally, { LootDrop::OverlayHtml, LootDrop::TallyHtml, LootDrop::ControlHtml }, [&] { tally.Reset(); std::printf("RESET\n"); std::fflush(stdout); });
 	std::string err;
 	if (!server.Start(static_cast<uint16_t>(port), &err)) { std::printf("start failed: %s\n", err.c_str()); return 1; }

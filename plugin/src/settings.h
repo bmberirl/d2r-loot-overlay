@@ -48,6 +48,10 @@ struct Settings {
 	// true: only items seen mid-drop (mode dropping) count, so items already lying
 	// on the floor when you enter an area are not announced.
 	bool         droppingOnly    = true;
+	// Holy grail progress from the Grail On! plugin's file.
+	bool         grailEnabled    = true;
+	std::string  grailMode       = "auto";  // auto | hardcore | softcore
+	uint32_t     grailTotal      = 0;       // 0 = count from the mod's tables
 	NativeLayout layout;
 };
 

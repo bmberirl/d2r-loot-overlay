@@ -60,6 +60,14 @@ require_layout_check = 1
 ; seen on the floor, including ones already there when you arrive.
 dropping_only = 1
 
+[grail]
+; Holy grail progress on the /tally overlay, read from the Grail On! plugin's file.
+enabled = 1
+; auto = the grail saved last; or hardcore / softcore.
+mode = auto
+; 0 = every unique and set item that can drop in the mod. Any other number replaces it.
+total = 0
+
 [native]
 ; D2R 3.4.95032 native layout. Only change these if a game update broke detection.
 unit_table_pattern =
@@ -110,6 +118,10 @@ auto LoadSettings(const std::filesystem::path& iniPath) -> Settings {
 	s.scanEveryFrames    = std::max<uint32_t>(1, ReadUInt(L"scanner", L"scan_every_frames", s.scanEveryFrames, p));
 	s.requireLayoutCheck = ReadUInt(L"scanner", L"require_layout_check", 1, p) != 0;
 	s.droppingOnly       = ReadUInt(L"scanner", L"dropping_only", 1, p) != 0;
+	s.grailEnabled       = ReadUInt(L"grail", L"enabled", 1, p) != 0;
+	s.grailMode          = ReadString(L"grail", L"mode", s.grailMode, p);
+	if (s.grailMode != "hardcore" && s.grailMode != "softcore") s.grailMode = "auto";
+	s.grailTotal         = ReadUInt(L"grail", L"total", 0, p);
 	s.layout.unitTableRva = ReadUInt(L"native", L"unit_table_rva", 0, p);
 
 	auto& n              = s.layout;

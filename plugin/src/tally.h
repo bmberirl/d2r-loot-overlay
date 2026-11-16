@@ -2,6 +2,8 @@
 // Stream tally: cumulative counts of orbs, runes and gems. Saved to disk on every
 // change so it survives game restarts; cleared only by an explicit reset.
 
+#include "grail.h"
+
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -28,6 +30,8 @@ public:
 	// Every unique charm the mod defines, as a JSON array of {"id":..,"name":..},
 	// so the page can list charms not found yet.
 	void SetCharmCatalog(std::string json);
+	// Holy grail progress shown above the tally (from the Grail On! plugin's file).
+	void SetGrail(const GrailProgress& grail);
 
 	auto Json() const -> std::string;
 	auto Version() const -> uint64_t;
@@ -40,6 +44,7 @@ private:
 	std::filesystem::path             file_;
 	std::map<std::string, TallyEntry> entries_;  // by item code
 	std::string                       charmCatalog_ = "[]";
+	GrailProgress                     grail_;
 	int64_t                           startedMs_ = 0;
 	uint64_t                          version_   = 1;
 };

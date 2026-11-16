@@ -8,6 +8,11 @@ items as they drop on the ground and serves OBS browser-source overlays on
   sets, the seven Reimagined orbs, and runes above #20.
 - `http://127.0.0.1:8766/tally`: a persistent stream tally of runes (highest
   first), orbs, unique charms and gems. It survives game restarts until reset.
+  Holy grail progress sits at the top. It is read from the Grail On! plugin's
+  `grail-hardcore.dat` / `grail-softcore.dat`: unique and set items found, out of
+  every unique and set item the mod can drop. Ethereal copies and runewords are
+  not counted. Add `?grail=0` to hide it; the `[grail]` ini section picks the
+  mode or overrides the total.
 - `http://127.0.0.1:8766/control`: a reset dock (OBS Docks > Custom Browser Docks).
 
 URL options are documented at the top of `plugin/src/overlay_html.h` and

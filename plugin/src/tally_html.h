@@ -7,6 +7,8 @@
 //   minrune=21             lowest rune shown (default 21 = Pul and up; 1 = all)
 //   gems=found|all|perfect found: only gem types seen (default); all: every type;
 //                          perfect: only the Perfect column
+//   grail=1|0              holy grail progress at the top (default 1; read from the
+//                          Grail On! plugin's file: uniques and set items found)
 //   scale=1, align=left|right, title=Stream%20Loot (no title unless given)
 // GET /control - reset dock (OBS: Docks > Custom Browser Docks)
 
@@ -38,6 +40,13 @@ td.z{color:var(--dim)}
 .empty{color:var(--dim);font-size:.8em;font-style:italic}
 .bump{display:inline-block;animation:bump .7s ease-out}
 @keyframes bump{0%{transform:scale(1)}25%{transform:scale(1.45)}100%{transform:scale(1)}}
+.grail{margin:0 0 .45em}
+.grail .top{display:flex;justify-content:space-between;align-items:baseline;gap:1em}
+.grail .lbl{font-size:.62em;letter-spacing:.16em;text-transform:uppercase;color:#a99f86}
+.grail .pct{font-size:1.35em;font-weight:bold;color:var(--gold);font-variant-numeric:tabular-nums}
+.grail .cnt{font-size:.72em;color:#a99f86;font-variant-numeric:tabular-nums;text-align:right}
+.grail .bar{height:.32em;margin-top:.2em;background:rgba(199,179,119,.15);border-radius:2px;overflow:hidden}
+.grail .fill{height:100%;background:var(--gold);transform-origin:left center;transition:transform .8s ease-out}
 .gema{color:#c77dff}.gemt{color:#ffe14d}.gems{color:#6fa8ff}.geme{color:#3fd36b}.gemr{color:#ff5555}.gemd{color:#f2f2f2}.gemz{color:#c9c2b0}.gemo{color:#9b8cff}
 </style></head>
 <body><div id="panel"></div>
@@ -52,12 +61,13 @@ const scale=Math.max(.4,Math.min(4,parseFloat(q.get('scale')||'1')||1));
 document.documentElement.style.setProperty('--scale',scale);
 if((q.get('align')||'').toLowerCase()==='right')document.body.classList.add('right');
 const title=q.get('title')||'';
+const showGrail=q.get('grail')!=='0';
 const ORBS=[['Corruption',['ka3','1ka']],['Socketing',['oos','1os']],['Conversion',['ooc','1oc']],['Assemblage',['ooa','1oa']],['Infusion',['ooi','1oi']],['Shadows',['ooe','1oe']],['Renewal',['oor','1or']]];
 const RUNES=['El','Eld','Tir','Nef','Eth','Ith','Tal','Ral','Ort','Thul','Amn','Sol','Shael','Dol','Hel','Io','Lum','Ko','Fal','Lem','Pul','Um','Mal','Ist','Gul','Vex','Ohm','Lo','Sur','Ber','Jah','Cham','Zod'];
 const GEMS=[['gema','Amethyst'],['gemt','Topaz'],['gems','Sapphire'],['geme','Emerald'],['gemr','Ruby'],['gemd','Diamond'],['gemz','Skull'],['gemo','Chaos Onyx']];
 const GRADES=[['gem0','C'],['gem1','F'],['gem2','S'],['gem3','Fl'],['gem4','P']];
 const panel=document.getElementById('panel');
-let prev={};
+let prev={},prevGrail=null;
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
 function num(key,value){const s=el('span','n',String(value));s.dataset.k=key;return s;}
 function render(t){
@@ -65,6 +75,18 @@ function render(t){
  const counts={};
  panel.replaceChildren();
  if(title)panel.appendChild(el('h1','',title));
+ if(showGrail&&t.grail&&t.grail.total>0){
+  const gr=t.grail,frac=Math.min(1,gr.found/gr.total);
+  const box=el('div','grail'),top=el('div','top'),left=el('div','');
+  left.appendChild(el('div','lbl','Holy Grail'+(gr.mode==='hardcore'?' (HC)':'')));
+  const pct=el('span','pct',(frac*100).toFixed(1)+'%');pct.dataset.k='grail';left.appendChild(pct);
+  top.appendChild(left);top.appendChild(el('div','cnt',gr.found+' / '+gr.total));box.appendChild(top);
+  const bar=el('div','bar'),fill=el('div','fill');
+  fill.style.transform='scaleX('+(prevGrail===null?frac:prevGrail)+')';bar.appendChild(fill);box.appendChild(bar);
+  panel.appendChild(box);
+  if(prevGrail!==null&&frac!==prevGrail)requestAnimationFrame(()=>requestAnimationFrame(()=>{fill.style.transform='scaleX('+frac+')';}));
+  counts['grail']=gr.found;prevGrail=frac;
+ }
  for(const sec of sections){
   if(sec==='orb'){
    panel.appendChild(el('h2','','Orbs'));

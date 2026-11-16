@@ -2,6 +2,7 @@
 // OBS browser-source overlay on 127.0.0.1. Client role, read-only, no hooks.
 
 #include "drop_feed.h"
+#include "grail.h"
 #include "ground_scanner.h"
 #include "http_server.h"
 #include "item_tables.h"
@@ -53,6 +54,7 @@ struct State {
 	ItemTables                       tables;
 	Tally                            tally;
 	GroundScanner                    scanner;
+	GrailReader                      grail;  // watchdog thread only
 	std::atomic<bool>                unloading { false };
 	std::thread                      watchdog;
 	bool                             inGame    = false;
@@ -384,6 +386,37 @@ auto SavedGamesDir() -> std::filesystem::path {
 	return out;
 }
 
+void PollGrail();
+
+// Grail On! keeps its grail in <Saved Games>\Diablo II Resurrected\mods\<mod>\.
+void ConfigureGrail() {
+	if (!g->settings.grailEnabled || !g->ctx->modDirectory) {
+		Log("grail progress off");
+		return;
+	}
+	std::filesystem::path mod(g->ctx->modDirectory);
+	if (!mod.has_filename()) mod = mod.parent_path();
+	const auto dir   = g->dataDir.parent_path() / L"mods" / mod.filename();
+	const uint32_t total = g->settings.grailTotal ? g->settings.grailTotal : g->tables.GrailTotal();
+	g->grail.Configure(dir, g->settings.grailMode, total, g->tables.GrailExcluded());
+	Log("grail: " + dir.string() + ", mode " + g->settings.grailMode + ", total " + std::to_string(total) + " (" + std::to_string(g->tables.GrailExcluded().size()) + " non-drop items left out)");
+	PollGrail();
+}
+
+// Called at load and from the watchdog thread only (GrailReader is not shared).
+void PollGrail() {
+	static std::string lastError;
+	if (g->grail.Poll()) {
+		const auto& p = g->grail.Progress();
+		g->tally.SetGrail(p);
+		if (p.ok) Log("grail (" + p.mode + "): " + std::to_string(p.found) + " / " + std::to_string(p.total));
+	}
+	if (g->grail.LastError() != lastError) {
+		lastError = g->grail.LastError();
+		if (!lastError.empty()) Log("grail: " + lastError);
+	}
+}
+
 template <typename Service>
 auto Query(const D2RL::PluginContext* ctx) -> const Service* {
 	const Service* s = nullptr;
@@ -430,6 +463,7 @@ D2RL_PLUGIN_EXPORT auto D2RLoaderLoadPlugin(const D2RL::PluginContext* context) 
 
 		g->tally.Load(g->dataDir / L"tally.json");
 		g->tally.SetCharmCatalog(CharmCatalogJson());
+		ConfigureGrail();
 		Log("unique charms known: " + std::to_string(g->tables.UniqueCharms().size()));
 		Log("tally loaded: " + std::to_string(g->tally.Total()) + " orbs/runes/gems so far");
 		g->server = std::make_unique<HttpServer>(g->feed, g->tally, HttpServer::Pages { OverlayHtml, TallyHtml, ControlHtml }, [] {
@@ -468,6 +502,7 @@ D2RL_PLUGIN_EXPORT auto D2RLoaderLoadPlugin(const D2RL::PluginContext* context) 
 			uint64_t lastFrame = ~0ULL;
 			uint32_t attempts  = 0;
 			uint32_t stalled   = 0;
+			uint32_t grailPolls = 0;
 			while (g && !g->unloading) {
 				for (int i = 0; i < 10 && !g->unloading; ++i) Sleep(100);
 				if (g->unloading) break;
@@ -484,6 +519,7 @@ D2RL_PLUGIN_EXPORT auto D2RLoaderLoadPlugin(const D2RL::PluginContext* context) 
 					}
 				}
 				lastFrame = frame;
+				if (++grailPolls % 2 == 0) PollGrail();
 			}
 		});
 		return true;

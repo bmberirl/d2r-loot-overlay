@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace LootDrop {
@@ -37,6 +38,10 @@ public:
 	// (UniqueItems *ID, display name) for every unique charm in the mod.
 	auto UniqueCharms() const -> const std::vector<std::pair<uint32_t, std::string>>& { return uniqueCharms_; }
 	auto SetName(uint32_t recordId) const -> std::string;
+	// Unique and set items that can drop (enabled, spawnable, with a base item),
+	// and the grail keys ("u:Name") of the enabled uniques and sets that cannot.
+	auto GrailTotal() const -> uint32_t { return grailTotal_; }
+	auto GrailExcluded() const -> const std::unordered_set<std::string>& { return grailExcluded_; }
 	auto Loaded() const -> bool { return !withSeparators_.empty(); }
 
 private:
@@ -52,6 +57,8 @@ private:
 	std::unordered_map<uint32_t, std::string>    sets_;
 	std::unordered_map<std::string, std::string> strings_;  // Key -> enUS
 	std::vector<std::pair<uint32_t, std::string>> uniqueCharms_;
+	uint32_t                                     grailTotal_ = 0;
+	std::unordered_set<std::string>              grailExcluded_;
 };
 
 auto TrimCode(const std::string& code) -> std::string;
