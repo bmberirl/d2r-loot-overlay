@@ -38,7 +38,7 @@ static constexpr D2RL::PluginInfo Info {
 	.abiVersion  = D2RL_PLUGIN_ABI_VERSION,
 	.id          = PluginId,
 	.name        = "Loot Drop Overlay",
-	.version     = "0.1.0",
+	.version     = "0.2.0",
 	.author      = "bmberirl",
 	.description = "Announces ground drops and serves an OBS browser-source overlay on 127.0.0.1.",
 	.flags       = D2RL::PluginFlags::Client,
