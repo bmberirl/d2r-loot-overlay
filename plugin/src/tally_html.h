@@ -78,7 +78,7 @@ function render(t){
  if(showGrail&&t.grail&&t.grail.total>0){
   const gr=t.grail,frac=Math.min(1,gr.found/gr.total);
   const box=el('div','grail'),top=el('div','top'),left=el('div','');
-  left.appendChild(el('div','lbl','Holy Grail'+(gr.mode==='hardcore'?' (HC)':'')));
+  left.appendChild(el('div','lbl','Holy Grail'));
   const pct=el('span','pct',(frac*100).toFixed(1)+'%');pct.dataset.k='grail';left.appendChild(pct);
   top.appendChild(left);top.appendChild(el('div','cnt',gr.found+' / '+gr.total));box.appendChild(top);
   const bar=el('div','bar'),fill=el('div','fill');
