@@ -2,6 +2,8 @@
 // OBS browser-source overlay on 127.0.0.1. Client role, read-only, no hooks.
 
 #include "drop_feed.h"
+#include "filter_html.h"
+#include "filter_store.h"
 #include "grail.h"
 #include "ground_scanner.h"
 #include "http_server.h"
@@ -53,6 +55,7 @@ struct State {
 	std::unique_ptr<HttpServer>      server;
 	ItemTables                       tables;
 	Tally                            tally;
+	FilterStore                      filter;
 	GroundScanner                    scanner;
 	GrailReader                      grail;  // watchdog thread only
 	std::atomic<bool>                unloading { false };
@@ -118,6 +121,18 @@ auto CharmCatalogJson() -> std::string {
 	for (const auto& [id, name] : g->tables.UniqueCharms()) {
 		json += first ? "" : ",";
 		json += "{\"id\":" + std::to_string(id) + ",\"name\":\"" + JsonEscape(name) + "\"}";
+		first = false;
+	}
+	return json + "]";
+}
+
+// Every unique and set item that can drop, for the /filter page.
+auto ItemCatalogJson() -> std::string {
+	std::string json = "[";
+	bool first = true;
+	for (const auto& it : g->tables.Catalog()) {
+		json += first ? "" : ",";
+		json += std::string("{\"k\":\"") + it.kind + "\",\"id\":" + std::to_string(it.id) + ",\"name\":\"" + JsonEscape(it.name) + "\",\"base\":\"" + JsonEscape(it.base) + "\"}";
 		first = false;
 	}
 	return json + "]";
@@ -468,7 +483,9 @@ D2RL_PLUGIN_EXPORT auto D2RLoaderLoadPlugin(const D2RL::PluginContext* context) 
 		ConfigureGrail();
 		Log("unique charms known: " + std::to_string(g->tables.UniqueCharms().size()));
 		Log("tally loaded: " + std::to_string(g->tally.Total()) + " orbs/runes/gems so far");
-		g->server = std::make_unique<HttpServer>(g->feed, g->tally, HttpServer::Pages { OverlayHtml, TallyHtml, ControlHtml }, [] {
+		g->filter.Load(g->dataDir / L"drop-filter.json");
+		Log(std::string("drop filter: ") + (g->filter.Json() == "null" ? "none saved (defaults)" : "loaded") + ", " + std::to_string(g->tables.Catalog().size()) + " uniques and set items to choose from");
+		g->server = std::make_unique<HttpServer>(g->feed, g->tally, g->filter, HttpServer::Pages { OverlayHtml, TallyHtml, ControlHtml, FilterHtml, ItemCatalogJson() }, [] {
 			if (g) {
 				g->tally.Reset();
 				Log("tally reset from the control page");

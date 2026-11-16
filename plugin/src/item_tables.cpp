@@ -218,10 +218,17 @@ auto ItemTables::Load(const std::filesystem::path& modDirectory) -> std::string 
 		const int   dis   = t.Column("disabled");
 		const int   spawn = t.Column("spawnable");
 		const int   base  = t.Column(baseColumn);
+		const int   idCol = t.Column("*ID");
 		for (const auto& r : t.rows) {
-			if (Table::Cell(r, dis) == "1" || TrimCode(Table::Cell(r, base)).empty()) continue;
+			const std::string baseCode = TrimCode(Table::Cell(r, base));
+			if (Table::Cell(r, dis) == "1" || baseCode.empty()) continue;
 			if (Table::Cell(r, spawn) == "1") {
 				++grailTotal_;
+				const std::string id = Table::Cell(r, idCol);
+				if (!id.empty()) {
+					const BaseItem* b = BaseByCode(baseCode);
+					catalog_.push_back({ prefix[0], static_cast<uint32_t>(std::strtoul(id.c_str(), nullptr, 10)), Lookup(Table::Cell(r, idx)), b ? b->name : baseCode });
+				}
 			} else {
 				grailExcluded_.insert(prefix + Lookup(Table::Cell(r, idx)));
 			}

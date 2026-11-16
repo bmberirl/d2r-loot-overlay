@@ -11,6 +11,14 @@
 
 namespace LootDrop {
 
+// A unique or set item that can drop, for the overlay's filter page.
+struct CatalogItem {
+	char        kind;  // 'u' unique, 's' set item
+	uint32_t    id;    // *ID, as reported in drop events
+	std::string name;
+	std::string base;
+};
+
 struct BaseItem {
 	std::string code;     // trimmed, e.g. "cap", "r30"
 	std::string nameKey;  // namestr
@@ -41,6 +49,7 @@ public:
 	// Unique and set items that can drop (enabled, spawnable, with a base item),
 	// and the grail keys ("u:Name") of the enabled uniques and sets that cannot.
 	auto GrailTotal() const -> uint32_t { return grailTotal_; }
+	auto Catalog() const -> const std::vector<CatalogItem>& { return catalog_; }
 	auto GrailExcluded() const -> const std::unordered_set<std::string>& { return grailExcluded_; }
 	auto Loaded() const -> bool { return !withSeparators_.empty(); }
 
@@ -58,6 +67,7 @@ private:
 	std::unordered_map<std::string, std::string> strings_;  // Key -> enUS
 	std::vector<std::pair<uint32_t, std::string>> uniqueCharms_;
 	uint32_t                                     grailTotal_ = 0;
+	std::vector<CatalogItem>                     catalog_;
 	std::unordered_set<std::string>              grailExcluded_;
 };
 

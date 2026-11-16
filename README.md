@@ -13,6 +13,11 @@ items as they drop on the ground and serves OBS browser-source overlays on
   every unique and set item the mod can drop. Ethereal copies and runewords are
   not counted. Add `?grail=0` to hide it; the `[grail]` ini section picks the
   mode or overrides the total.
+- `http://127.0.0.1:8766/filter`: choose what the drop pop-ups show, with a
+  checkmark per item. Pick all, only checked, or no uniques and set items
+  (searchable, every one the mod can drop), each rune, each orb, and rare, magic,
+  crafted or normal items. Saved in `drop-filter.json` and applied to open
+  overlays at once. An overlay URL with `show=` or `minrune=` ignores it.
 - `http://127.0.0.1:8766/control`: a reset dock (OBS Docks > Custom Browser Docks).
 
 URL options are documented at the top of `plugin/src/overlay_html.h` and

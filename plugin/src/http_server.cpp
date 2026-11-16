@@ -13,7 +13,8 @@ namespace LootDrop {
 
 namespace {
 
-constexpr size_t   MaxRequestBytes = 8 * 1024;
+constexpr size_t   MaxHeaderBytes  = 8 * 1024;
+constexpr size_t   MaxRequestBytes = MaxHeaderBytes + MaxFilterBytes;
 constexpr size_t   MaxClients      = 16;
 constexpr uint32_t ReplayMax       = 50;
 constexpr auto     KeepAlive       = std::chrono::seconds(15);
@@ -27,6 +28,7 @@ struct Client {
 	bool                                  closeWhenFlushed = false;
 	uint64_t                              lastSeq   = 0;
 	uint64_t                              lastTally = 0;
+	uint64_t                              lastFilter = 0;
 	std::chrono::steady_clock::time_point opened;
 	std::chrono::steady_clock::time_point lastWrite;
 };
@@ -93,8 +95,8 @@ auto SseEvent(const DropEvent& e) -> std::string {
 
 }
 
-HttpServer::HttpServer(DropFeed& feed, Tally& tally, Pages pages, std::function<void()> onReset)
-    : feed_(feed), tally_(tally), pages_(std::move(pages)), onReset_(std::move(onReset)) {}
+HttpServer::HttpServer(DropFeed& feed, Tally& tally, FilterStore& filter, Pages pages, std::function<void()> onReset)
+    : feed_(feed), tally_(tally), filter_(filter), pages_(std::move(pages)), onReset_(std::move(onReset)) {}
 
 HttpServer::~HttpServer() {
 	Stop();
@@ -183,6 +185,20 @@ void HttpServer::Run() {
 			c.closeWhenFlushed = true;
 			return;
 		}
+		if (std::strcmp(method, "POST") == 0 && path == "/api/filter") {
+			// Same protection as reset: the custom header forces a CORS preflight.
+			const size_t headerEnd = c.request.find("\r\n\r\n");
+			const std::string body = c.request.substr(headerEnd + 4);
+			if (HeaderValue(c.request.substr(0, headerEnd + 2), "x-loot-overlay") != "filter") {
+				c.pendingOut = Response(403, "Forbidden", "text/plain", "missing filter header");
+			} else if (!filter_.Set(body)) {
+				c.pendingOut = Response(400, "Bad Request", "text/plain", "filter refused");
+			} else {
+				c.pendingOut = Response(200, "OK", "application/json", "{\"ok\":true}");
+			}
+			c.closeWhenFlushed = true;
+			return;
+		}
 		if (std::strcmp(method, "GET") != 0) {
 			c.pendingOut = Response(405, "Method Not Allowed", "text/plain", "GET only", "Allow: GET\r\n");
 			c.closeWhenFlushed = true;
@@ -196,6 +212,15 @@ void HttpServer::Run() {
 			c.closeWhenFlushed = true;
 		} else if (path == "/control") {
 			c.pendingOut = Response(200, "OK", "text/html; charset=utf-8", pages_.control, PageCsp);
+			c.closeWhenFlushed = true;
+		} else if (path == "/filter") {
+			c.pendingOut = Response(200, "OK", "text/html; charset=utf-8", pages_.filter, PageCsp);
+			c.closeWhenFlushed = true;
+		} else if (path == "/catalog.json") {
+			c.pendingOut = Response(200, "OK", "application/json", pages_.catalog);
+			c.closeWhenFlushed = true;
+		} else if (path == "/filter.json") {
+			c.pendingOut = Response(200, "OK", "application/json", filter_.Json());
 			c.closeWhenFlushed = true;
 		} else if (path == "/tally.json") {
 			c.pendingOut = Response(200, "OK", "application/json", tally_.Json());
@@ -225,6 +250,8 @@ void HttpServer::Run() {
 			c.lastSeq    = feed_.LastSeq();
 			c.lastTally  = tally_.Version();
 			c.pendingOut += "event: tally\ndata: " + tally_.Json() + "\n\n";
+			c.lastFilter  = filter_.Version();
+			c.pendingOut += "event: filter\ndata: " + filter_.Json() + "\n\n";
 			if (replay > 0) {
 				for (const auto& e : feed_.Recent(replay)) {
 					c.pendingOut += SseEvent(e);
@@ -270,6 +297,7 @@ void HttpServer::Run() {
 
 		const uint64_t lastSeq      = feed_.LastSeq();
 		const uint64_t tallyVersion = tally_.Version();
+		const uint64_t filterVersion = filter_.Version();
 		for (auto& c : clients) {
 			bool dead = false;
 			if (ready > 0 && FD_ISSET(c.sock, &readSet)) {
@@ -279,10 +307,20 @@ void HttpServer::Run() {
 					dead = true;
 				} else if (!c.sse) {
 					c.request.append(buf, static_cast<size_t>(n));
-					if (c.request.size() > MaxRequestBytes) {
+					const size_t headerEnd = c.request.find("\r\n\r\n");
+					if (c.request.size() > MaxRequestBytes || (headerEnd == std::string::npos && c.request.size() > MaxHeaderBytes)) {
 						dead = true;
-					} else if (c.request.find("\r\n\r\n") != std::string::npos && c.pendingOut.empty()) {
-						handleRequest(c);
+					} else if (headerEnd != std::string::npos && c.pendingOut.empty()) {
+						// A body (only POST /api/filter has one) must arrive whole first.
+						const std::string len  = HeaderValue(c.request.substr(0, headerEnd + 2), "content-length");
+						const size_t      body = len.empty() ? 0 : std::strtoul(len.c_str(), nullptr, 10);
+						if (body > MaxFilterBytes) {
+							c.pendingOut = Response(413, "Payload Too Large", "text/plain", "too large");
+							c.closeWhenFlushed = true;
+						} else if (c.request.size() >= headerEnd + 4 + body) {
+							c.request.resize(headerEnd + 4 + body);
+							handleRequest(c);
+						}
 					}
 				}
 			}
@@ -299,6 +337,10 @@ void HttpServer::Run() {
 				if (tallyVersion != c.lastTally) {
 					c.lastTally   = tallyVersion;
 					c.pendingOut += "event: tally\ndata: " + tally_.Json() + "\n\n";
+				}
+				if (filterVersion != c.lastFilter) {
+					c.lastFilter  = filterVersion;
+					c.pendingOut += "event: filter\ndata: " + filter_.Json() + "\n\n";
 				}
 				if (c.pendingOut.empty() && now - c.lastWrite > KeepAlive) {
 					c.pendingOut = ": keepalive\n\n";

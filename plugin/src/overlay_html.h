@@ -1,5 +1,7 @@
 #pragma once
 // The OBS browser-source page served at http://127.0.0.1:<port>/.
+// What it shows comes from the filter saved on /filter. With show= or minrune= in
+// the URL, the URL decides instead.
 // URL options (all optional):
 //   show=unique,set,rune,orb,rare,magic,crafted,base   which drops to show (default unique,set,rune,orb)
 //                   orb = the seven Reimagined orbs (Corruption, Socketing, Conversion,
@@ -56,7 +58,18 @@ const BIG_RUNE=26; // Vex and above get the pulse
 // Reimagined's seven orbs and their stack items (misc.txt codes).
 const ORBS=new Set(['ka3','oos','ooc','ooa','ooi','ooe','oor','1ka','1os','1oc','1oa','1oi','1oe','1or']);
 function kind(d){if(d.rune>0)return'rune';if(ORBS.has(d.code))return'orb';const k=d.quality;return(k==='inferior'||k==='normal'||k==='superior')?'base':k;}
-function wanted(d){const k=kind(d);if(!show.has(k))return false;if(k==='rune'&&d.rune<minRune)return false;return true;}
+// The filter saved on /filter applies unless this URL sets show= or minrune= itself.
+const urlFilter=q.has('show')||q.has('minrune');
+const ORB_BASE={'1ka':'ka3','1os':'oos','1oc':'ooc','1oa':'ooa','1oi':'ooi','1oe':'ooe','1or':'oor'};
+let saved=null;
+function useFilter(x){if(!x||typeof x!=='object'){saved=null;return;}
+ saved={unique:x.unique,set:x.set,uniques:new Set(x.uniques||[]),sets:new Set(x.sets||[]),runes:new Set(x.runes||[]),orbs:new Set(x.orbs||[]),other:new Set(x.other||[])};}
+function wanted(d){const k=kind(d);
+ if(urlFilter||!saved){if(!show.has(k))return false;if(k==='rune'&&d.rune<minRune)return false;return true;}
+ if(k==='unique'||k==='set'){const m=saved[k];if(m==='off')return false;if(m!=='picked'||d.test)return true;return saved[k+'s'].has(d.record);}
+ if(k==='rune')return saved.runes.has(d.rune);
+ if(k==='orb')return saved.orbs.has(ORB_BASE[d.code]||d.code);
+ return saved.other.has(k);}
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
 function add(d){
  if(!wanted(d))return;
@@ -86,6 +99,7 @@ let es,lastSeq=0,lastTime=0;
 // seq to 1, so a lower seq with a newer timestamp is a new drop.
 function connect(){
  es=new EventSource('/events?replay='+replay);
+ es.addEventListener('filter',ev=>{try{useFilter(JSON.parse(ev.data));}catch(e){}});
  es.addEventListener('drop',ev=>{try{const d=JSON.parse(ev.data);
   const restart=d.seq<lastSeq&&d.time>lastTime;
   if(d.seq<=lastSeq&&!restart)return;

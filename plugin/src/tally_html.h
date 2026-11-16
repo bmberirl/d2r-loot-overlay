@@ -147,7 +147,7 @@ code{color:#c7b377}
 <div class="meta">Counting since <span id="since">...</span><br><span id="total">0</span> orbs, runes and gems this session</div>
 <button id="reset">Reset tally</button>
 <div id="msg"></div>
-<div class="meta" style="margin-top:14px">Overlay: <code>/tally</code> &middot; drops: <code>/</code></div>
+<div class="meta" style="margin-top:14px">Overlay: <code>/tally</code> &middot; drops: <code>/</code> &middot; <a href="/filter" style="color:#c7b377">choose which drops show</a></div>
 <script>
 const btn=document.getElementById('reset'),msg=document.getElementById('msg');
 let armed=false,timer;
